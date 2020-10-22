@@ -1,5 +1,5 @@
 # hpspresso
-HPSEspresso - a heuristic logic minimizer
+HPSpresso - a heuristic logic minimizer
 
 ## Example
 ```
