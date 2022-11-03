@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2015-2016 Hans Petter Selasky. All rights reserved.
+ * Copyright (c) 2015-2022 Hans Petter Selasky
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -199,22 +199,9 @@ static void
 print_output(struct table_entry *entry)
 {
 	if (do_float == 2) {
-		long long result = entry->output_d64;
-		char fmt[output_bits + 1];
-		char num[output_bits + 1];
-
-		if (result < 0)
-			snprintf(num, sizeof(num), "%llu", -result);
-		else
-			snprintf(num, sizeof(num), "%llu", result);
-		memset(fmt, '0', sizeof(fmt));
-		fmt[output_bits] = 0;
-		memcpy(fmt + output_bits - strlen(num), num, strlen(num));
-		if (result < 0)
-			fmt[0] = '-';
-		printf("%s", fmt);
+		printf("%lld", (long long)entry->output_d64);
 	} else if (do_float == 1) {
-		printf("%e", entry->output_d64);
+		printf("%f", entry->output_d64);
 	} else {
 		print_output_value(entry->output_value);
 	}
@@ -226,16 +213,32 @@ parse_header(void)
 	char *line = NULL;
 	size_t linecap = 0;
 	ssize_t linelen;
+	char ch = 0;
 
-	while (input_bits == 0 || output_bits == 0) {
+	while (input_bits == 0 || (ch == 0 && output_bits == 0) || (ch != 0 && ch != 'i' && ch != 'f')) {
 		linelen = getline(&line, &linecap, fp);
 		if (linelen <= 0)
-			errx(1, "Invalid header");
+			errx(1, "Invalid header, expected format is .i X or .o Y");
 		if (sscanf(line, ".i %u\n", &input_bits) == 1)
 			continue;
 		if (sscanf(line, ".o %u\n", &output_bits) == 1)
 			continue;
+		if (sscanf(line, ".o %c\n", &ch) == 1)
+			continue;
 	}
+
+	if (output_bits == 0 && ch == 'i') {
+		do_float = 2;	/* integer mode */
+		output_bits = 2;
+	} else if (output_bits == 0 && ch == 'f') {
+		do_float = 1;	/* floating point mode */
+		output_bits = 2;
+	} else if (output_bits == 0 && ch == 0) {
+		errx(1, "Number of output bits is invalid");
+	} else if (output_bits == 0 && ch != 0) {
+		errx(1, "Output mode not supported: '%c'", ch);
+	}
+
 	if (do_subdivide > 1) {
 		input_bits_sd = input_bits / do_subdivide;
 		if (input_bits % do_subdivide)
@@ -267,16 +270,20 @@ parse_contents(void)
 {
 	struct table_entry *ptr = NULL;
 	uint32_t offset = 0;
+	double dp = 1.0;
 	int ch;
 	int comment = 0;
-	int sign = 0;
+	bool sign = false;
 
-	while ((ch = fgetc(fp)) >= 0) {
+	for (;;) {
+		ch = fgetc(fp);
+
 		if (comment) {
-			if (ch != '\n')
+			if (ch >= 0 && ch != '\n')
 				continue;
 			comment = 0;
 		}
+
 		switch (ch) {
 		case '9':
 		case '8':
@@ -301,16 +308,24 @@ parse_contents(void)
 
 				ptr->input_value[offset / 16] |= m;
 				ptr->input_mask[offset / 16] |= m;
+				offset++;
 			} else if (do_float == 0) {
 				uint16_t m = 1 << ((offset - input_bits) % 16);
 
 				ptr->output_value[(offset - input_bits) / 16] |= m;
 				ptr->output_mask[(offset - input_bits) / 16] |= m;
+				offset++;
 			} else {
-				ptr->output_d64 *= 10.0;
-				ptr->output_d64 += ch - '0';
+				if (dp == 1.0) {
+					ptr->output_d64 *= 10.0;
+					ptr->output_d64 += ch - '0';
+				} else {
+					ptr->output_d64 += (ch - '0') * dp;
+					dp /= 10.0;
+				}
+				if (offset == input_bits)
+					offset++;
 			}
-			offset++;
 			break;
 		case '0':
 			if (ptr == NULL)
@@ -319,21 +334,31 @@ parse_contents(void)
 				uint16_t m = 1 << (offset % 16);
 
 				ptr->input_mask[offset / 16] |= m;
+				offset++;
 			} else if (do_float == 0) {
 				uint16_t m = 1 << ((offset - input_bits) % 16);
 
 				ptr->output_mask[(offset - input_bits) / 16] |= m;
+				offset++;
 			} else {
-				ptr->output_d64 *= 10.0;
+				if (dp == 1.0)
+					ptr->output_d64 *= 10.0;
+				else
+					dp /= 10.0;
+				if (offset == input_bits)
+					offset++;
 			}
-			offset++;
 			break;
 		case '-':
 			if (do_float != 0 && offset >= input_bits) {
 				if (ptr == NULL)
 					ptr = alloc_new_table_entry(NULL, 0);
+				if (sign)
+					errx(1, "Double sign in front of value");
 				sign = !sign;
-				offset++;
+
+				if (offset == input_bits)
+					offset++;
 				break;
 			}
 		case '~':
@@ -342,14 +367,29 @@ parse_contents(void)
 					ptr = alloc_new_table_entry(NULL, 0);
 				offset++;
 			}
+			if (do_float != 0 && offset > input_bits)
+				offset++;
 			break;
 		case '.':
+			if (do_float != 0 && offset >= input_bits) {
+				if (dp != 1.0)
+					errx(1, "Error parsing floating point value, double '.' character");
+				dp /= 10.0;
+
+				if (offset == input_bits)
+					offset++;
+				break;
+			}
 			if (offset != 0)
 				break;
 		case '#':
+			if (do_float != 0 && offset > input_bits)
+				offset++;
 			comment = 1;
 			break;
 		default:
+			if (do_float != 0 && offset > input_bits)
+				offset++;
 			break;
 		}
 		if (offset == (input_bits + output_bits)) {
@@ -361,7 +401,7 @@ parse_contents(void)
 			printf(" IV\n");
 			print_input_value(ptr->input_mask);
 			printf(" IM\n");
-			print_output(ptr);
+			print_output(ptr); printf("\n");
 #endif
 			do {
 				struct table_entry *pnew;
@@ -375,10 +415,13 @@ parse_contents(void)
 			ptr = NULL;
 			offset = 0;
 			sign = 0;
+			dp = 1.0;
 		}
+		if (ch < 0)
+			break;
 	}
 	if (ptr != NULL)
-		errx(1, "Corrupt file");
+		errx(1, "Incomplete line at end of file!");
 }
 
 /*
@@ -1325,13 +1368,11 @@ static void
 usage(void)
 {
 	fprintf(stderr,
-	    "Usage: hpspresso [-h] [-f] [-F] [-r] [-c] [-v] [-x] [-s] [-S] [-o] [-b <num>] [-d <num>] [-m <num>]\n"
+	    "Usage: hpspresso [-h] [-r] [-c] [-v] [-x] [-s] [-S] [-o] [-b <num>] [-d <num>] [-m <num>]\n"
 	    "\t" "-c	set to compress result" "\n"
 	    "\t" "-d <n>	subdivide the input variable by <n>\n"
 	    "\t" "-b <n>	set number of start bits to <n>\n"
 	    "\t" "-m <n>	set modulus to <n>\n"
-	    "\t" "-f	set to use floating point" "\n"
-	    "\t" "-F	set to use floating point, but print as integer" "\n"
 	    "\t" "-o	set to assume AND-XOR instead of OR-XOR output" "\n"
 	    "\t" "-r	set to verify full range" "\n"
 	    "\t" "-S	set to use sumbits for output" "\n"
@@ -1355,7 +1396,7 @@ main(int argc, char **argv)
 
 	fp = stdin;
 
-	while ((ch = getopt(argc, argv, "b:cfFvxrhsod:Sm:")) > 0) {
+	while ((ch = getopt(argc, argv, "b:cvxrhsod:Sm:")) > 0) {
 		switch (ch) {
 		case 'm':
 			do_mod = atoi(optarg);
@@ -1365,12 +1406,6 @@ main(int argc, char **argv)
 			break;
 		case 'd':
 			do_subdivide = atoi(optarg);
-			break;
-		case 'f':
-			do_float = 1;
-			break;
-		case 'F':
-			do_float = 2;
 			break;
 		case 'c':
 			do_compress = 1;

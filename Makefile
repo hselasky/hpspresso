@@ -1,9 +1,16 @@
+#
+# Makefile for hpspresso
+#
 PROG=hpspresso
-LDADD=-lmbin1
+LDADD=-lmbin1 -lm
+PREFIX?=/usr/local
 MAN=
 SRCS=hpspresso.c
-BINDIR?=/usr/local/bin
-CFLAGS+= -static
+BINDIR?=${PREFIX}/bin
+
+.if defined(HAVE_STATIC)
+LDFLAGS+= -static
+.endif
 
 .if defined(HAVE_DEBUG)
 CFLAGS+= -g -O0
