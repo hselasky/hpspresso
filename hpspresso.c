@@ -47,6 +47,7 @@ static uint32_t input_bits;
 static uint32_t input_bits_sd;
 static uint32_t output_bits;
 static FILE *fp;
+static uint8_t do_verbose;
 static uint8_t do_verify;
 static uint8_t do_compress;
 static uint8_t do_xor;
@@ -395,14 +396,17 @@ parse_contents(void)
 		if (offset == (input_bits + output_bits)) {
 			if (do_float != 0 && sign != 0)
 				ptr->output_d64 = -ptr->output_d64;
-#if 0
-			printf("in=%d out=%d\n", input_bits, output_bits);
-			print_input_value(ptr->input_value);
-			printf(" IV\n");
-			print_input_value(ptr->input_mask);
-			printf(" IM\n");
-			print_output(ptr); printf("\n");
-#endif
+
+			if (do_verbose) {
+				printf("# in=%d out=%d\n", input_bits, output_bits);
+				printf("# "); print_input_value(ptr->input_value);
+				printf(" IV\n");
+				printf("# "); print_input_value(ptr->input_mask);
+				printf(" IM\n");
+				printf("# "); print_output(ptr);
+				printf(" VALUE\n");
+			}
+
 			do {
 				struct table_entry *pnew;
 
