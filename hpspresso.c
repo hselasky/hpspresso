@@ -1523,7 +1523,11 @@ main(int argc, char **argv)
 					z += entry->output_d64 * func(check->input_value,
 					    entry->input_value, entry->input_mask);
 				}
-				printf("%e\n", z);
+				if (do_float == 2) {
+					printf("%lld\n", (long long)z);
+				} else {
+					printf("%f\n", z);
+				}
 			} while (!increment(check->input_value, check->input_mask));
 			free(check);
 		} else {
