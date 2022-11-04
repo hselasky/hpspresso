@@ -1564,11 +1564,21 @@ main(int argc, char **argv)
 						z += entry->output_d64 * func(check->input_value,
 						    entry->input_value, entry->input_mask);
 					}
-					if ((int64_t)(fabs(z) + 0.5) != (int64_t)(fabs(y) + 0.5)) {
-						printf("%e %e", z, y);
-						failed = 1;
-					} else
-						printf("%e", y);
+					if (do_float == 2) {
+						if ((long long)z != (long long)y) {
+							printf("%lld vs %lld", (long long)z, (long long)y);
+							failed = 1;
+						} else {
+							printf("%lld", (long long)y);
+						}
+					} else {
+						if (z != y) {
+							printf("%f vs %f", z, y);
+							failed = 1;
+						} else {
+							printf("%f", y);
+						}
+					}
 					printf("\n");
 				} while (!increment(check->input_value, check->input_mask));
 			}
